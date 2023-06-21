@@ -1,0 +1,223 @@
+version: "3.7"
+
+services:
+  userservice_db:
+    image: postgres:13.3
+    container_name: userservice-postgredb
+    ports:
+      - 32760:5432
+    volumes:
+      - ~/app/postgresql:/data
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=admin
+      - POSTGRES_DB=aviasales
+    networks:
+      - backend
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  userservice:
+    image: oglavdel/userservice:11.0
+    container_name: userservice
+    environment:
+      management.context-path: /userservice
+      hostName: userservice
+      DATABASESERVER_PORT: "32760:5432"
+      SPRING_DATASOURCE_URL: jdbc:postgresql://userservice_db:5432/aviasales
+      SPRING_DATASOURCE_USER: postgres
+      SPRING_DATASOURCE_PASSWORD: admin
+      SPRING_DATASOURCE_DB: aviasales
+      cloud.eureka-host: eurekaserver
+    depends_on:
+      - userservice_db
+      - eureka-service
+    networks:
+      - backend
+
+  #finance microservice start
+  finance-service:
+    build: ./finance
+    ports:
+      - ":8091"
+    restart: always
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://finance_db:5432/postgres
+      cloud.eureka-host: eurekaserver
+    depends_on:
+      - finance_db
+      - eureka-service
+    networks:
+      - backend
+
+  finance_db:
+    image: postgres:13.1-alpine
+    ports:
+      - "5678:5432"
+    environment:
+      POSTGRES_PASSWORD: mysecretpassword
+    volumes:
+      - finance_data:/var/lib/postgresql/data
+    networks:
+      - backend
+  #finance microservice end
+
+  #trip microservice start
+  trip-ticket-database:
+    image: postgres:13.1-alpine
+    container_name: trip_ticket_db
+    ports:
+      - "32768:5432"
+    volumes:
+      - ~/app/postgresql:/data
+    environment:
+      - POSTGRES_USER=postgres123
+      - POSTGRES_PASSWORD=postgres123
+      - POSTGRES_DB=trip_ticket_db
+    networks:
+      - backend
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres123 -d trip_ticket_db" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  trip-service:
+    container_name: trip-service
+    build: ./tripservice
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://trip-ticket-database:5432/trip_ticket_db
+      SPRING_DATASOURCE_USERNAME: postgres123
+      SPRING_DATASOURCE_PASSWORD: postgres123
+      cloud.eureka-host: eurekaserver
+    depends_on:
+      - trip-ticket-database
+      - eureka-service
+    networks:
+      - backend
+  #trip microservice end
+
+  #ticket microservice start
+  ticket-service:
+    container_name: ticket-service
+    build: ./aviasales-tickets
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://trip-ticket-database:5432/trip_ticket_db
+      SPRING_DATASOURCE_USERNAME: postgres123
+      SPRING_DATASOURCE_PASSWORD: postgres123
+      cloud.eureka-host: eurekaserver
+    depends_on:
+      - trip-ticket-database
+      - eureka-service
+    networks:
+      - backend
+  #ticket microservice end
+
+  #gateway microservice start
+  eureka-service:
+    container_name: eureka-service
+    build:
+      context: ./eureka-service
+      dockerfile: Dockerfile
+    environment:
+      eureka.instance.hostname: eurekaserver
+    ports:
+      - "8761:8761"
+    networks:
+      backend:
+        aliases:
+          - "eurekaserver"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8761/actuator/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  gateway-service:
+    container_name: gateway-service
+    build:
+      context: ./gateway-service
+      dockerfile: Dockerfile
+    environment:
+      cloud.eureka-host: eurekaserver
+    networks:
+      - backend
+    ports:
+      - "8080:8080"
+    depends_on:
+      - eureka-service
+  #gateway microservice end
+
+  notification-service-db:
+    image: mongo
+    container_name: notification-mongo
+    hostname: localhost
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=admin
+      - MONGO_INITDB_DATABASE=emailnotification
+    ports:
+      - "27017:27017"
+    volumes:
+      - ~/app/mongo:/data
+    networks:
+      - backend
+
+  notification-service:
+    build: ./notification-service
+    environment:
+      cloud.eureka-host: eurekaserver
+      ME_CONFIG_MONGODB_ADMINUSERNAME: admin
+      ME_CONFIG_MONGODB_ADMINPASSWORD: admin
+      SPRING_DATA_MONGODB_DATABASE: emailnotification
+      SERVER_PORT: 8087
+      SPRING_DATA_MONGODB_PORT: 27017
+      SPRING_DATA_MONGODB_HOST: notification-service-db
+      ME_CONFIG_MONGODB_URL: mongodb://admin:admin@mongo:27017/emailnotification?authSource=admin
+    networks:
+      - backend
+    restart: unless-stopped
+    depends_on:
+      - notification-service-db
+      - eureka-service
+
+  kafka:
+    image: 'bitnami/kafka:2'
+    ports:
+      - '9092:9092'
+    volumes:
+      - 'kafka_data:/bitnami'
+    environment:
+      - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
+      - ALLOW_PLAINTEXT_LISTENER=yes
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
+    depends_on:
+      - zookeeper
+    networks:
+      - backend
+  zookeeper:
+    image: 'bitnami/zookeeper:3'
+    ports:
+      - '2181:2181'
+    volumes:
+      - 'zookeeper_data:/bitnami'
+    environment:
+      - ALLOW_ANONYMOUS_LOGIN=yes
+    networks:
+      - backend
+  #notification microservice end
+
+volumes:
+  finance_data:
+  zookeeper_data:
+    driver: local
+  kafka_data:
+    driver: local
+
+networks:
+  backend:
+    driver: bridge
+

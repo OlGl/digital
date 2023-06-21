@@ -1,0 +1,43 @@
+server:
+  port: 8086
+
+spring:
+  application:
+    name: userservice
+
+  datasource:
+    driver-class-name: org.postgresql.Driver
+    password: admin
+    url: jdbc:postgresql://localhost:5432/aviasales?createDatabaseIfNotExist=true&allowPublicKeyRetrieval=true&useSSL=false&useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC
+    username: postgres
+
+  mvc:
+    pathmatch:
+      matching-strategy: ant_path_matcher
+
+  kafka:
+    bootstrap-servers: "kafka:9092"
+
+token:
+  access_secret: SwqRT$1
+  refresh_secret: HJyu76fv^&(
+  access_time: 1d
+  refresh_time: 30d
+
+cloud:
+  eureka-host: localhost
+
+eureka:
+  instance:
+    prefer-ip-address: true
+  client:
+    register-with-eureka: true
+    fetch-registry: true
+    enabled: false
+    service-url:
+      defaultZone: http://${cloud.eureka-host}:8761/eureka/
+
+springfox:
+  documentation:
+    swagger-ui:
+      enabled: true
